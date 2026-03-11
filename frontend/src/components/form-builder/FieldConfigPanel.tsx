@@ -28,7 +28,7 @@ const ALL_OPERATORS = [
 
 function getOperatorsForField(field: FormField | undefined) {
   if (!field) return ALL_OPERATORS;
-  return ALL_OPERATORS.filter((op) => op.types.includes(field.type));
+  return ALL_OPERATORS.filter((op) => (op.types as readonly string[]).includes(field.type));
 }
 
 function fieldHasOptions(field: FormField | undefined) {
