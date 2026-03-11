@@ -9,7 +9,8 @@ interface LogicResult {
 
 /**
  * Evaluates logic rules against current form data.
- * Supports: conditional visibility, dynamic required, field highlighting.
+ * Supports: conditional visibility, dynamic required, field highlighting,
+ * and compound conditions with AND/OR logic.
  */
 export function useLogicEngine(
     rules: LogicRule[],
@@ -18,16 +19,25 @@ export function useLogicEngine(
 ): LogicResult {
     return useMemo(() => {
         const allFieldIds = new Set(fields.map((f) => f.id));
+
+        const showTargets = new Set<string>();
+        for (const rule of rules) {
+            if (rule.action.show) showTargets.add(rule.action.show);
+        }
+
         const visibleFields = new Set(allFieldIds);
+        for (const id of showTargets) {
+            visibleFields.delete(id);
+        }
+
         const requiredFields = new Set(
             fields.filter((f) => f.required).map((f) => f.id)
         );
         const highlightedFields = new Set<string>();
 
         for (const rule of rules) {
-            const { condition, action } = rule;
-            const fieldValue = formData[condition.field];
-            const conditionMet = evaluateCondition(fieldValue, condition.operator, condition.value);
+            const { action } = rule;
+            const conditionMet = evaluateRule(rule, formData);
 
             if (conditionMet) {
                 if (action.show) visibleFields.add(action.show);
@@ -40,6 +50,22 @@ export function useLogicEngine(
 
         return { visibleFields, requiredFields, highlightedFields };
     }, [rules, fields, formData]);
+}
+
+function evaluateRule(rule: LogicRule, formData: Record<string, unknown>): boolean {
+    // Compound conditions: use `conditions` array with `logic` (and/or)
+    if (rule.conditions && rule.conditions.length > 0) {
+        const results = rule.conditions.map((c) =>
+            evaluateCondition(formData[c.field], c.operator, c.value)
+        );
+        return rule.logic === 'or'
+            ? results.some(Boolean)
+            : results.every(Boolean);
+    }
+
+    // Single condition (backward compatible)
+    const { condition } = rule;
+    return evaluateCondition(formData[condition.field], condition.operator, condition.value);
 }
 
 function evaluateCondition(

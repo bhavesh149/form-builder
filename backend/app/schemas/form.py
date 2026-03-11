@@ -19,8 +19,10 @@ class FormFieldSchema(BaseModel):
 
 
 class LogicRule(BaseModel):
-    """Schema for a conditional logic rule."""
+    """Schema for a conditional logic rule. Supports compound conditions with AND/OR."""
     condition: dict  # {"field": "depth", "operator": ">=", "value": 4}
+    conditions: Optional[List[dict]] = None  # Multiple conditions for compound rules
+    logic: Optional[str] = None  # "and" or "or" — how to combine conditions
     action: dict  # {"show": "warning_message"} or {"require": "video_evidence"}
 
 

@@ -49,12 +49,16 @@ export interface FormField {
     options?: Array<{ label: string; value: string }>;
 }
 
+export interface LogicCondition {
+    field: string;
+    operator: string;
+    value: unknown;
+}
+
 export interface LogicRule {
-    condition: {
-        field: string;
-        operator: string;
-        value: unknown;
-    };
+    condition: LogicCondition;
+    conditions?: LogicCondition[];
+    logic?: 'and' | 'or';
     action: Record<string, string>;
 }
 

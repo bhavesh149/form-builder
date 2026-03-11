@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useFormBuilderStore } from '@/store/formBuilderStore';
 import { X, Plus, Trash2, Settings2, Zap, Database, List, Pencil, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { LogicRule, FormField } from '@/types';
+import type { LogicRule, LogicCondition, FormField } from '@/types';
 
 const ACTION_TYPES = [
   { value: 'show', label: 'Show' },
@@ -283,6 +283,35 @@ function ConditionValueInput({
   );
 }
 
+/* ─── Compound condition helpers ─── */
+
+function getRuleConditions(rule: LogicRule): LogicCondition[] {
+  return rule.conditions && rule.conditions.length > 0
+    ? rule.conditions
+    : [rule.condition];
+}
+
+function buildRule(
+  conditions: { field: string; operator: string; value: string }[],
+  logic: 'and' | 'or',
+  action: Record<string, string>
+): LogicRule {
+  const mapped: LogicCondition[] = conditions.map((c) => ({
+    field: c.field,
+    operator: c.operator,
+    value: c.value,
+  }));
+  const rule: LogicRule = {
+    condition: mapped[0],
+    action,
+  };
+  if (mapped.length > 1) {
+    rule.conditions = mapped;
+    rule.logic = logic;
+  }
+  return rule;
+}
+
 /* ─── Logic Tab (per-field) ─── */
 
 function LogicTab({
@@ -293,33 +322,37 @@ function LogicTab({
   updateLogicRule: (index: number, rule: LogicRule) => void;
   removeLogicRule: (index: number) => void;
 }) {
-  const [condField, setCondField] = useState(field.id);
-  const [op, setOp] = useState('==');
-  const [val, setVal] = useState('');
+  const [conditions, setConditions] = useState<{ field: string; operator: string; value: string }[]>([
+    { field: field.id, operator: '==', value: '' },
+  ]);
+  const [logic, setLogic] = useState<'and' | 'or'>('and');
   const [action, setAction] = useState('show');
   const [target, setTarget] = useState('');
 
-  const condFieldObj = fields.find((f) => f.id === condField);
-  const operators = getOperatorsForField(condFieldObj);
-
-  const handleCondFieldChange = (newFieldId: string) => {
-    setCondField(newFieldId);
-    setVal('');
-    const newFieldObj = fields.find((f) => f.id === newFieldId);
-    const newOps = getOperatorsForField(newFieldObj);
-    if (!newOps.find((o) => o.value === op)) {
-      setOp(newOps[0]?.value || '==');
-    }
+  const updateCondition = (idx: number, updates: Partial<{ field: string; operator: string; value: string }>) => {
+    setConditions((prev) => prev.map((c, i) => {
+      if (i !== idx) return c;
+      const updated = { ...c, ...updates };
+      if (updates.field && updates.field !== c.field) {
+        updated.value = '';
+        const newFieldObj = fields.find((f) => f.id === updates.field);
+        const newOps = getOperatorsForField(newFieldObj);
+        if (!newOps.find((o) => o.value === updated.operator)) {
+          updated.operator = newOps[0]?.value || '==';
+        }
+      }
+      return updated;
+    }));
   };
 
+  const addConditionRow = () => setConditions((prev) => [...prev, { field: '', operator: '==', value: '' }]);
+  const removeConditionRow = (idx: number) => { if (conditions.length > 1) setConditions((prev) => prev.filter((_, i) => i !== idx)); };
+
   const handleAdd = () => {
-    if (!condField || !target) return;
-    if (!['is_empty', 'is_not_empty'].includes(op) && !val) return;
-    addLogicRule({
-      condition: { field: condField, operator: op, value: val },
-      action: { [action]: target },
-    });
-    setVal('');
+    const valid = conditions.filter((c) => c.field && (['is_empty', 'is_not_empty'].includes(c.operator) || c.value));
+    if (valid.length === 0 || !target) return;
+    addLogicRule(buildRule(valid, logic, { [action]: target }));
+    setConditions([{ field: field.id, operator: '==', value: '' }]);
     setTarget('');
   };
 
@@ -332,23 +365,52 @@ function LogicTab({
         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">New Rule</p>
 
         <div className="space-y-2.5">
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="shrink-0 rounded-md bg-primary/10 px-2 py-1 font-bold text-primary">IF</span>
-            <select value={condField} onChange={(e) => handleCondFieldChange(e.target.value)} className={cn(selectCls, 'flex-1 min-w-0')}>
-              {fields.map((f) => (
-                <option key={f.id} value={f.id}>{f.label}</option>
-              ))}
-            </select>
-          </div>
+          {conditions.map((cond, idx) => {
+            const condFieldObj = fields.find((f) => f.id === cond.field);
+            const operators = getOperatorsForField(condFieldObj);
+            return (
+              <div key={idx} className="space-y-1.5">
+                {idx > 0 && (
+                  <div className="flex items-center gap-1.5 pl-1">
+                    <button
+                      onClick={() => setLogic(logic === 'and' ? 'or' : 'and')}
+                      className="rounded-md bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700 hover:bg-violet-200 transition-colors cursor-pointer"
+                    >
+                      {logic.toUpperCase()}
+                    </button>
+                    <button onClick={() => removeConditionRow(idx)} className="rounded p-0.5 text-slate-300 hover:text-red-500 transition-colors">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  {idx === 0 && <span className="shrink-0 rounded-md bg-primary/10 px-2 py-1 font-bold text-primary">IF</span>}
+                  <select value={cond.field} onChange={(e) => updateCondition(idx, { field: e.target.value })} className={cn(selectCls, 'flex-1 min-w-0')}>
+                    <option value="" disabled>Select field...</option>
+                    {fields.map((f) => (
+                      <option key={f.id} value={f.id}>{f.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 text-xs pl-4">
+                  <select value={cond.operator} onChange={(e) => updateCondition(idx, { operator: e.target.value })} className={selectCls}>
+                    {operators.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <ConditionValueInput condField={cond.field} fields={fields} op={cond.operator} val={cond.value} setVal={(v) => updateCondition(idx, { value: v })} className={selectCls} />
+                </div>
+              </div>
+            );
+          })}
 
-          <div className="flex flex-wrap items-center gap-1.5 text-xs pl-4">
-            <select value={op} onChange={(e) => setOp(e.target.value)} className={selectCls}>
-              {operators.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <ConditionValueInput condField={condField} fields={fields} op={op} val={val} setVal={setVal} className={selectCls} />
-          </div>
+          <button
+            onClick={addConditionRow}
+            className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-violet-200 bg-violet-50/50 px-2 py-1.5 text-[10px] font-semibold text-violet-600 transition-colors hover:border-violet-300 hover:bg-violet-50"
+          >
+            <Plus className="h-2.5 w-2.5" />
+            Add {logic.toUpperCase()} condition
+          </button>
 
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="shrink-0 rounded-md bg-emerald-500/10 px-2 py-1 font-bold text-emerald-600">THEN</span>
@@ -368,7 +430,7 @@ function LogicTab({
 
         <button
           onClick={handleAdd}
-          disabled={!condField || !target || (!['is_empty', 'is_not_empty'].includes(op) && !val)}
+          disabled={!conditions.some((c) => c.field && (['is_empty', 'is_not_empty'].includes(c.operator) || c.value)) || !target}
           className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Plus className="h-3.5 w-3.5" />
@@ -457,33 +519,37 @@ function AllRulesView({
   addLogicRule: (rule: LogicRule) => void;
 }) {
   const [showBuilder, setShowBuilder] = useState(false);
-  const [condField, setCondField] = useState('');
-  const [op, setOp] = useState('==');
-  const [val, setVal] = useState('');
+  const [conditions, setConditions] = useState<{ field: string; operator: string; value: string }[]>([
+    { field: '', operator: '==', value: '' },
+  ]);
+  const [logic, setLogic] = useState<'and' | 'or'>('and');
   const [action, setAction] = useState('show');
   const [target, setTarget] = useState('');
 
-  const condFieldObj = fields.find((f) => f.id === condField);
-  const operators = getOperatorsForField(condFieldObj);
-
-  const handleCondFieldChange = (newFieldId: string) => {
-    setCondField(newFieldId);
-    setVal('');
-    const newFieldObj = fields.find((f) => f.id === newFieldId);
-    const newOps = getOperatorsForField(newFieldObj);
-    if (!newOps.find((o) => o.value === op)) {
-      setOp(newOps[0]?.value || '==');
-    }
+  const updateCondition = (idx: number, updates: Partial<{ field: string; operator: string; value: string }>) => {
+    setConditions((prev) => prev.map((c, i) => {
+      if (i !== idx) return c;
+      const updated = { ...c, ...updates };
+      if (updates.field && updates.field !== c.field) {
+        updated.value = '';
+        const newFieldObj = fields.find((f) => f.id === updates.field);
+        const newOps = getOperatorsForField(newFieldObj);
+        if (!newOps.find((o) => o.value === updated.operator)) {
+          updated.operator = newOps[0]?.value || '==';
+        }
+      }
+      return updated;
+    }));
   };
 
+  const addConditionRow = () => setConditions((prev) => [...prev, { field: '', operator: '==', value: '' }]);
+  const removeConditionRow = (idx: number) => { if (conditions.length > 1) setConditions((prev) => prev.filter((_, i) => i !== idx)); };
+
   const handleAdd = () => {
-    if (!condField || !target) return;
-    if (!['is_empty', 'is_not_empty'].includes(op) && !val) return;
-    addLogicRule({
-      condition: { field: condField, operator: op, value: val },
-      action: { [action]: target },
-    });
-    setVal('');
+    const valid = conditions.filter((c) => c.field && (['is_empty', 'is_not_empty'].includes(c.operator) || c.value));
+    if (valid.length === 0 || !target) return;
+    addLogicRule(buildRule(valid, logic, { [action]: target }));
+    setConditions([{ field: '', operator: '==', value: '' }]);
     setTarget('');
     setShowBuilder(false);
   };
@@ -517,23 +583,53 @@ function AllRulesView({
 
       {showBuilder && fields.length >= 2 && (
         <div className="mb-4 rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-2.5">
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="shrink-0 rounded-md bg-primary/10 px-2 py-1 font-bold text-primary">IF</span>
-            <select value={condField} onChange={(e) => handleCondFieldChange(e.target.value)} className={cn(selectCls, 'flex-1 min-w-0')}>
-              <option value="" disabled>Select field...</option>
-              {fields.map((f) => (
-                <option key={f.id} value={f.id}>{f.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5 text-xs pl-4">
-            <select value={op} onChange={(e) => setOp(e.target.value)} className={selectCls}>
-              {operators.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <ConditionValueInput condField={condField} fields={fields} op={op} val={val} setVal={setVal} className={selectCls} />
-          </div>
+          {conditions.map((cond, idx) => {
+            const condFieldObj = fields.find((f) => f.id === cond.field);
+            const operators = getOperatorsForField(condFieldObj);
+            return (
+              <div key={idx} className="space-y-1.5">
+                {idx > 0 && (
+                  <div className="flex items-center gap-1.5 pl-1">
+                    <button
+                      onClick={() => setLogic(logic === 'and' ? 'or' : 'and')}
+                      className="rounded-md bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700 hover:bg-violet-200 transition-colors cursor-pointer"
+                    >
+                      {logic.toUpperCase()}
+                    </button>
+                    <button onClick={() => removeConditionRow(idx)} className="rounded p-0.5 text-slate-300 hover:text-red-500 transition-colors">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  {idx === 0 && <span className="shrink-0 rounded-md bg-primary/10 px-2 py-1 font-bold text-primary">IF</span>}
+                  <select value={cond.field} onChange={(e) => updateCondition(idx, { field: e.target.value })} className={cn(selectCls, 'flex-1 min-w-0')}>
+                    <option value="" disabled>Select field...</option>
+                    {fields.map((f) => (
+                      <option key={f.id} value={f.id}>{f.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 text-xs pl-4">
+                  <select value={cond.operator} onChange={(e) => updateCondition(idx, { operator: e.target.value })} className={selectCls}>
+                    {operators.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <ConditionValueInput condField={cond.field} fields={fields} op={cond.operator} val={cond.value} setVal={(v) => updateCondition(idx, { value: v })} className={selectCls} />
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            onClick={addConditionRow}
+            className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-violet-200 bg-violet-50/50 px-2 py-1.5 text-[10px] font-semibold text-violet-600 transition-colors hover:border-violet-300 hover:bg-violet-50"
+          >
+            <Plus className="h-2.5 w-2.5" />
+            Add {logic.toUpperCase()} condition
+          </button>
+
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="shrink-0 rounded-md bg-emerald-500/10 px-2 py-1 font-bold text-emerald-600">THEN</span>
             <select value={action} onChange={(e) => setAction(e.target.value)} className={selectCls}>
@@ -543,14 +639,14 @@ function AllRulesView({
             </select>
             <select value={target} onChange={(e) => setTarget(e.target.value)} className={cn(selectCls, 'flex-1 min-w-0')}>
               <option value="" disabled>Target field...</option>
-              {fields.filter((f) => f.id !== condField).map((f) => (
+              {fields.map((f) => (
                 <option key={f.id} value={f.id}>{f.label}</option>
               ))}
             </select>
           </div>
           <button
             onClick={handleAdd}
-            disabled={!condField || !target || (!['is_empty', 'is_not_empty'].includes(op) && !val)}
+            disabled={!conditions.some((c) => c.field && (['is_empty', 'is_not_empty'].includes(c.operator) || c.value)) || !target}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -599,43 +695,48 @@ function RuleCard({
   const [editing, setEditing] = useState(false);
 
   const actionKey = Object.keys(rule.action)[0];
+  const ruleConditions = getRuleConditions(rule);
 
-  const [eCondField, setECondField] = useState(rule.condition.field);
-  const [eOp, setEOp] = useState(rule.condition.operator);
-  const [eVal, setEVal] = useState(String(rule.condition.value ?? ''));
+  const [eConditions, setEConditions] = useState<{ field: string; operator: string; value: string }[]>(
+    ruleConditions.map((c) => ({ field: c.field, operator: c.operator, value: String(c.value ?? '') }))
+  );
+  const [eLogic, setELogic] = useState<'and' | 'or'>(rule.logic || 'and');
   const [eAction, setEAction] = useState(actionKey);
   const [eTarget, setETarget] = useState(rule.action[actionKey]);
 
-  const condFieldObj = fields.find((f) => f.id === eCondField);
-  const operators = getOperatorsForField(condFieldObj);
-
   const startEdit = () => {
-    setECondField(rule.condition.field);
-    setEOp(rule.condition.operator);
-    setEVal(String(rule.condition.value ?? ''));
+    const conds = getRuleConditions(rule);
+    setEConditions(conds.map((c) => ({ field: c.field, operator: c.operator, value: String(c.value ?? '') })));
+    setELogic(rule.logic || 'and');
     const ak = Object.keys(rule.action)[0];
     setEAction(ak);
     setETarget(rule.action[ak]);
     setEditing(true);
   };
 
-  const handleCondFieldChange = (newFieldId: string) => {
-    setECondField(newFieldId);
-    setEVal('');
-    const newFieldObj = fields.find((f) => f.id === newFieldId);
-    const newOps = getOperatorsForField(newFieldObj);
-    if (!newOps.find((o) => o.value === eOp)) {
-      setEOp(newOps[0]?.value || '==');
-    }
+  const updateECondition = (idx: number, updates: Partial<{ field: string; operator: string; value: string }>) => {
+    setEConditions((prev) => prev.map((c, i) => {
+      if (i !== idx) return c;
+      const updated = { ...c, ...updates };
+      if (updates.field && updates.field !== c.field) {
+        updated.value = '';
+        const newFieldObj = fields.find((f) => f.id === updates.field);
+        const newOps = getOperatorsForField(newFieldObj);
+        if (!newOps.find((o) => o.value === updated.operator)) {
+          updated.operator = newOps[0]?.value || '==';
+        }
+      }
+      return updated;
+    }));
   };
 
+  const addECondition = () => setEConditions((prev) => [...prev, { field: '', operator: '==', value: '' }]);
+  const removeECondition = (idx: number) => { if (eConditions.length > 1) setEConditions((prev) => prev.filter((_, i) => i !== idx)); };
+
   const handleSave = () => {
-    if (!eCondField || !eTarget) return;
-    if (!['is_empty', 'is_not_empty'].includes(eOp) && !eVal) return;
-    onUpdate(index, {
-      condition: { field: eCondField, operator: eOp, value: eVal },
-      action: { [eAction]: eTarget },
-    });
+    const valid = eConditions.filter((c) => c.field && (['is_empty', 'is_not_empty'].includes(c.operator) || c.value));
+    if (valid.length === 0 || !eTarget) return;
+    onUpdate(index, buildRule(valid, eLogic, { [eAction]: eTarget }));
     setEditing(false);
   };
 
@@ -644,22 +745,53 @@ function RuleCard({
   if (editing) {
     return (
       <div className="rounded-lg border-2 border-primary/30 bg-primary/5 p-3 space-y-2">
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">IF</span>
-          <select value={eCondField} onChange={(e) => handleCondFieldChange(e.target.value)} className={cn(selectCls, 'flex-1 min-w-0')}>
-            {fields.map((f) => (
-              <option key={f.id} value={f.id}>{f.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5 text-xs pl-4">
-          <select value={eOp} onChange={(e) => setEOp(e.target.value)} className={selectCls}>
-            {operators.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <ConditionValueInput condField={eCondField} fields={fields} op={eOp} val={eVal} setVal={setEVal} className={selectCls} />
-        </div>
+        {eConditions.map((cond, idx) => {
+          const condFieldObj = fields.find((f) => f.id === cond.field);
+          const operators = getOperatorsForField(condFieldObj);
+          return (
+            <div key={idx} className="space-y-1.5">
+              {idx > 0 && (
+                <div className="flex items-center gap-1.5 pl-1">
+                  <button
+                    onClick={() => setELogic(eLogic === 'and' ? 'or' : 'and')}
+                    className="rounded-md bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700 hover:bg-violet-200 transition-colors cursor-pointer"
+                  >
+                    {eLogic.toUpperCase()}
+                  </button>
+                  <button onClick={() => removeECondition(idx)} className="rounded p-0.5 text-slate-300 hover:text-red-500 transition-colors">
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                {idx === 0 && <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">IF</span>}
+                <select value={cond.field} onChange={(e) => updateECondition(idx, { field: e.target.value })} className={cn(selectCls, 'flex-1 min-w-0')}>
+                  <option value="" disabled>Select field...</option>
+                  {fields.map((f) => (
+                    <option key={f.id} value={f.id}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs pl-4">
+                <select value={cond.operator} onChange={(e) => updateECondition(idx, { operator: e.target.value })} className={selectCls}>
+                  {operators.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                <ConditionValueInput condField={cond.field} fields={fields} op={cond.operator} val={cond.value} setVal={(v) => updateECondition(idx, { value: v })} className={selectCls} />
+              </div>
+            </div>
+          );
+        })}
+
+        <button
+          onClick={addECondition}
+          className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-violet-200 bg-violet-50/50 px-2 py-1 text-[10px] font-semibold text-violet-600 transition-colors hover:border-violet-300 hover:bg-violet-50"
+        >
+          <Plus className="h-2.5 w-2.5" />
+          Add {eLogic.toUpperCase()} condition
+        </button>
+
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600">THEN</span>
           <select value={eAction} onChange={(e) => setEAction(e.target.value)} className={selectCls}>
@@ -669,7 +801,7 @@ function RuleCard({
           </select>
           <select value={eTarget} onChange={(e) => setETarget(e.target.value)} className={cn(selectCls, 'flex-1 min-w-0')}>
             <option value="" disabled>Target...</option>
-            {fields.filter((f) => f.id !== eCondField).map((f) => (
+            {fields.map((f) => (
               <option key={f.id} value={f.id}>{f.label}</option>
             ))}
           </select>
@@ -677,7 +809,7 @@ function RuleCard({
         <div className="flex items-center gap-1.5 pt-1">
           <button
             onClick={handleSave}
-            disabled={!eCondField || !eTarget || (!['is_empty', 'is_not_empty'].includes(eOp) && !eVal)}
+            disabled={!eConditions.some((c) => c.field && (['is_empty', 'is_not_empty'].includes(c.operator) || c.value)) || !eTarget}
             className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-primary px-2 py-1.5 text-[11px] font-semibold text-white transition-all hover:bg-primary-hover disabled:opacity-40"
           >
             <Check className="h-3 w-3" />
@@ -694,31 +826,40 @@ function RuleCard({
     );
   }
 
-  const condObj = fields.find((f) => f.id === rule.condition.field);
-  const targetObj = fields.find((f) => f.id === rule.action[actionKey]);
-  const opLabel = ALL_OPERATORS.find((o) => o.value === rule.condition.operator)?.label || rule.condition.operator;
   const actionLabel = ACTION_TYPES.find((a) => a.value === actionKey)?.label || actionKey;
+  const targetObj = fields.find((f) => f.id === rule.action[actionKey]);
 
-  const resolveValueLabel = () => {
-    if (['is_empty', 'is_not_empty'].includes(rule.condition.operator)) return null;
-    if (condObj && fieldHasOptions(condObj) && condObj.options?.length) {
-      const match = condObj.options.find((o) => o.value === String(rule.condition.value));
-      if (match) return match.label;
+  const resolveConditionLabel = (cond: LogicCondition) => {
+    const condObj = fields.find((f) => f.id === cond.field);
+    const opLabel = ALL_OPERATORS.find((o) => o.value === cond.operator)?.label || cond.operator;
+    let valLabel: string | null = null;
+    if (!['is_empty', 'is_not_empty'].includes(cond.operator)) {
+      if (condObj && fieldHasOptions(condObj) && condObj.options?.length) {
+        const match = condObj.options.find((o) => o.value === String(cond.value));
+        if (match) valLabel = match.label;
+      }
+      if (!valLabel) valLabel = String(cond.value);
     }
-    return String(rule.condition.value);
+    return { fieldLabel: condObj?.label || '?', opLabel, valLabel };
   };
-
-  const valLabel = resolveValueLabel();
 
   return (
     <div className="flex items-start gap-1.5 rounded-lg border border-slate-100 bg-white p-2.5 group">
       <div className="flex-1 min-w-0 text-xs leading-relaxed">
-        <span className="font-bold text-primary">IF </span>
-        <span className="font-semibold text-slate-700">{condObj?.label || '?'}</span>
-        <span className="text-slate-400"> {opLabel} </span>
-        {valLabel && (
-          <span className="font-mono text-amber-600">"{valLabel}"</span>
-        )}
+        {ruleConditions.map((cond, idx) => {
+          const { fieldLabel, opLabel, valLabel } = resolveConditionLabel(cond);
+          return (
+            <span key={idx}>
+              {idx === 0 && <span className="font-bold text-primary">IF </span>}
+              {idx > 0 && (
+                <span className="font-bold text-violet-600"> {(rule.logic || 'and').toUpperCase()} </span>
+              )}
+              <span className="font-semibold text-slate-700">{fieldLabel}</span>
+              <span className="text-slate-400"> {opLabel} </span>
+              {valLabel && <span className="font-mono text-amber-600">"{valLabel}"</span>}
+            </span>
+          );
+        })}
         <br />
         <span className="font-bold text-emerald-600">THEN </span>
         <span className="text-slate-500">{actionLabel} </span>
