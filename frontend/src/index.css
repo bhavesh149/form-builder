@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", sans-serif;
+  /* Stitch Theme Sand/Gold */
+  --color-primary: #d4b581;
+  --color-primary-hover: #c4a36b;
+  --color-primary-light: #f5eedf;
+}
+
+html {
+  scroll-behavior: smooth;
+}

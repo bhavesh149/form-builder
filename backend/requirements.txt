@@ -1,0 +1,26 @@
+# Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.1
+psycopg2-binary==2.9.10
+
+# Validation
+pydantic==2.10.4
+pydantic-settings==2.7.1
+email-validator==2.3.0
+
+# Auth
+python-jose[cryptography]==3.3.0
+bcrypt==4.1.2
+python-multipart==0.0.20
+
+# File upload
+cloudinary==1.41.0
+
+# Utilities
+python-dotenv==1.0.1
+loguru==0.7.3

@@ -1,0 +1,49 @@
+# ──── OS ────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ──── IDEs / Editors ────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ──── Python (backend) ────
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+dist/
+build/
+*.egg
+
+# ──── Node (frontend) ────
+node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ──── Environment / Secrets ────
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ──── Docker ────
+postgres_data/
+
+# ──── Misc ────
+*.log
+logs/
+coverage/
+.nyc_output/
