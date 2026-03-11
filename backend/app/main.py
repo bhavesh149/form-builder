@@ -46,11 +46,13 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def on_startup():
-        logger.info("Creating database tables...")
-        Base.metadata.create_all(bind=engine)
-        
-        # Seed default branches if none exist
         from app.db.database import SessionLocal
+        try:
+            logger.info("Creating database tables...")
+            Base.metadata.create_all(bind=engine, checkfirst=True)
+        except Exception as e:
+            logger.warning(f"Table creation skipped (likely already exists): {e}")
+
         db = SessionLocal()
         try:
             if db.query(Branch).count() == 0:
@@ -64,9 +66,12 @@ def create_app() -> FastAPI:
                 db.add_all(default_branches)
                 db.commit()
                 logger.info("Successfully seeded 4 branches.")
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"Branch seeding skipped: {e}")
         finally:
             db.close()
-            
+
         logger.info("Humanity Forms API started successfully")
 
     @app.get("/api/health")

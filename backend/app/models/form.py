@@ -23,7 +23,7 @@ class Form(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(String(1000), nullable=True)
-    status = Column(SAEnum(FormStatus), nullable=False, default=FormStatus.DRAFT)
+    status = Column(SAEnum(FormStatus, create_constraint=True, checkfirst=True), nullable=False, default=FormStatus.DRAFT)
     collect_respondent_info = Column(Boolean, nullable=False, default=False, server_default="false")
     current_version = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

@@ -22,7 +22,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
-    role = Column(SAEnum(UserRole), nullable=False, default=UserRole.USER)
+    role = Column(SAEnum(UserRole, create_constraint=True, checkfirst=True), nullable=False, default=UserRole.USER)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
